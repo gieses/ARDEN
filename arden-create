@@ -1,0 +1,256 @@
+#!/usr/bin/env python
+"""
+Created 2012
+Main script for generating an artificial reference genome. It  calls various modules from core.
+
+@author: Sven Giese
+"""
+
+
+
+
+
+"""
+Copyright (c) 2012, Sven H. Giese, gieseS@rki.de, 
+Robert Koch-Institut, Germany,
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * The name of the author may not be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL MARTIN S. LINDNER BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
+
+
+
+
+import time 
+import os
+import sys
+
+import HTSeq
+from optparse import OptionParser
+
+
+# import ARDEN 
+from core import  FindOrfs as ORFS
+from core import ReadAndWrite as RAW
+from core import InsertMutations as IM
+from core import Prep as INI
+
+#global variable for DNA basecount
+bases = 0
+
+def printExample():
+    """
+    Function that prints some usage examples.
+    
+    """
+    print("\r\nEXAMPLES:\r\n")
+    print ("Here are 3 simple examples with all kinds of different settings. The general input scheme is:")
+    print ("usage: python createAR.py [options] [OUTPUTFOLDER] [INPUT FASTA])\r\n")
+    print("Case 1:")
+    print("\t -f random.fasta (inputfile)")
+    print("\t -p /home/ART (outputpath)")
+    print("\t -d 12 (minimum distance >= 9)")
+    print("\t -o 1 (protect start / stop codons)")
+    print("\t -r 1 (If no balanced mutation can be found for a nucleotide don't change it)")
+    print("\t -m 1 (select start position randomly)")
+    print("\t -s /home/ART/randomorfs (save start stop codons in file)")
+    print("CALL:\tpython createAR -s /home/ART/randomorfs -d 12 -o 1 -r 1 -m 1 /home/ART/  random.fasta\r\n")
+    print("Case 2:")
+    print("\t -f random.fasta (inputfile)")
+    print("\t -p /home/ART (outputpath)")
+    print("\t -d 12 (minimum distance >= 9)")
+    print("\t -o 0 (mutation of start / stop codons is allowed)")
+    print("\t -m 0 (start the search for a balanced mutation from left to right in genome)")
+    print("\t -r 0 (ignore balanced mutations conditions)")
+    print("CALL:\tpython createAR -d 12 -o 0 -r 0 -m 0 /home/ART/ random.fasta \r\n")
+    print("Case 3: (use default settings but load previously created orf file)")
+    print("\t -f random.fasta (inputfile)")
+    print("\t -p /home/ART (outputpath)")
+    print("\t -l /home/ART/randomorfs.p (pickle file)")
+    print("CALL:\tpython createAR -l /home/ART/randomorfs.p  /home/ART/ random.fasta \r\n")
+
+
+def Create():
+    """
+    Function that controls the generation of an artificial reference genome. Subfunction calls, preparation of data structures etc.
+    """
+    
+    usage = """usage: %prog [options] [OUTPUTFOLDER] [INPUT FASTA]...
+    Required Arguments:
+    
+    OUTPUTFOLDER:\t complete path to output destination folder
+    INPUT FASTA: \t Single sequence Fasta file.
+    
+    Script to generate an artificial reference genome (AR) from a given input. The AR fullfills 
+    the following conditions by default settings: 
+    1) has a nucleotide distribution equal to the input genome
+    2) has an amino acid (aa) distribution equal to the input genome
+    3) keeps the aa neighborhood similar to the neighborhood in input genome
+    4) protects start and stop codons from mutations
+    """
+    
+    parser = OptionParser(usage=usage,version="%prog 1.0")
+    parser.add_option("-d", "--distance", type='int',dest="distance",action="store",  default=15,help="distance between 2 mutations on DNA level. The minimum distance will then be d-3. [default: %default]")
+    parser.add_option("-o", "--orf", type='string',dest="orf",action="store",  default=1,help="1- protect ORF structure from mutations.\r\n 0 - allow mutations in start / stop codon [default: %default]")
+    parser.add_option("-r", "--revsub", type='int',dest="revsub",action="store",  default=1,help="1 - reverse substitution if no suitable counterpart was found (balanced mutation). 0 - keep the unbalanced mutations.[default: %default]")
+    parser.add_option("-m", "--random", type='int',dest="random",action="store",  default=1,help=" 1/0 variable. 1 - shuffled starting positions for the mutations. 0 - linear mutation [default: %default]")
+    parser.add_option("-s", "--saveorfs", type='string',dest="sorf",action="store",  default="",help="Save found start and stop codons in a pickle file (can be loaded if the input fasta is used again if a filename is specified). [default: %default]")
+    parser.add_option("-l", "--loadorfs", type='string',dest="lorf",action="store",  default="",help="Specify filename to a previously created pickle file (contains positions of start/stop codons) [default: %default]")
+    parser.add_option("-n", "--name", type='string',dest="name",action="store",  default="",help="Specify name which will be used as header. [default: %default]")
+    parser.add_option("-p", "--pexamples", type='int',dest="pexamples",action="store",  default=0,help="set to 1 if you want to print examples")
+    parser.description=""
+    (options, args) = parser.parse_args() 
+    numArgs = len(args)
+ 
+    # check if examples shall be printed
+    if options.pexamples == 1:
+        # self defined function to print
+        printExample()
+        # exit program
+        sys.exit()
+        
+    # numArgs has to be equal to # required parameters
+    if numArgs ==2 :
+        outputpath = args[0]
+        inputpath = args[1]
+        # adjust options, otherwise default is used
+        distance = options.distance
+        orfs = options.orf
+        rev = options.revsub
+        random = options.random
+        sorfs = options.sorf
+        lorfs = options.lorf
+        fastaheader = options.name
+    else:
+        print("!!!Wrong number of parameters!!!")
+        print("Add --help to print help message.")
+        #parser.print_help()
+        sys.exit(1)
+
+
+    # adjust to complete path
+    #outputpath = os.path.abspath(outputpath+"/")
+    print outputpath
+    
+    # create output directory if necessary
+    if not os.path.exists(os.path.dirname(outputpath)):
+            os.makedirs(os.path.dirname(outputpath))
+    
+    
+    
+    # number of nucleotides in genome
+    global bases
+    '''0. Step: prepare dictionaries and load DNA'''
+  
+    print("\r\n###############Your Settings:######################")
+    print("outputpath:\t"+ str(outputpath))
+    print("inputfile:\t"+ str(inputpath))
+    print("distance:\t" + str(distance))
+    print("orfs:\t\t" +  str(orfs))
+    print("rev:\t\t" + str(rev))
+    print("random:\t\t" + str(random))
+    print("###################################################")
+    print ("\r\nStart:")
+    print("\tReading DNA...")
+    Reference = RAW.readdna(inputpath)
+    
+    #adjust reference name to option
+    if fastaheader == "":
+        Reference.name = ''.join(e for e in Reference.name if e.isalnum())
+    else:
+        Reference.name = fastaheader
+        
+    # generate header with all information (which options enabled etc.)
+    ArtHead = "AR_%s%s%s_%s_%s"  % (str(orfs),str(rev),str(random),str(distance),Reference.name)
+
+    # INIT OUTFILES
+    # This file contains a complete log of the mutation algorithm
+    # Position for initial mutation in NUC / AA and the 2nd mutation if it was successful
+    fobj2= open(outputpath+ArtHead+"_CompleteLog.txt","w")
+    fobj2.close()
+
+    #1. Step :Find Orfs 
+   
+    # init orf dictionary
+    pdic={}
+    
+    # load orfs= yes?
+    if (lorfs != ""):
+        pdic = INI.loadpickle(lorfs)
+    # else create orfs
+    else:
+        if (orfs ==1 ):
+            #keep orf structure - enabled 
+            print("Searching Orfs...")
+            
+            pdic= ORFS.find_orfs(Reference.seq,pdic)
+            if sorfs != "":
+                INI.savepickle(pdic,sorfs)
+        #keep orf structure  - disabled --> do nothing
+
+    
+    #2. Step: Translate DNA 
+    print("\tTranslating DNA...")
+    AminoA =""
+    # dna which cannot be used for AA translation
+    rest_DNA = ""
+    AminoA,rest_DNA = INI.trans_seq(Reference.seq)
+    
+        
+    
+    #3. Step: Mutate DNA /AA
+    print("\tMutate DNA...")
+    # generate artifical genome sequence
+    AR = HTSeq.Sequence(IM.mutate_random(Reference.seq,AminoA,distance,pdic,rev,ArtHead,random,outputpath),ArtHead)
+    # write AR to output fasta
+    RAW.writefile(AR,outputpath+"/"+ArtHead+".fasta")
+
+        
+    '''4. Step: Compare Genomes'''
+    # compare hamming distance between REF and ART
+    RAW.gethammingdistance(Reference.seq,AR.seq)
+    
+    # compare NUC and AA distributions of REF and ART
+    n1=RAW.nucleotide_dist_seq(Reference.seq,Reference.name+"_dis.txt",0)
+    n2=RAW.nucleotide_dist_seq(AR.seq,ArtHead+"_dis.txt",0)
+    
+    #translate sequence of the artifical reference genome
+    AminoA_AR,dummy3=INI.trans_seq(AR.seq)
+    
+    a1=RAW.aa_dist_seq(AminoA,outputpath+Reference.name+"_dis_protein.txt",0)
+    a2=RAW.aa_dist_seq(AminoA_AR,outputpath+ArtHead+"_dis_protein.txt",0)
+    
+    # write the NUC AA distributions to the Delta file
+    RAW.writeoverview(n1,a1,n2,a2,outputpath+ArtHead+"_Delta.txt")
+    bases = len(Reference.seq)
+   
+
+
+a = time.time()
+Create()
+b = time.time()
+print ("Finished!")
+print ("Processed %d bases in %f seconds!" % (bases,b-a))
+
+
+    

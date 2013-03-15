@@ -1,0 +1,276 @@
+#!/usr/bin/env python
+"""
+Created on Thu Aug 18  2012
+
+Script for analyzing mapping results using an artificial reference genome (ART / ARG). An exhaustive comparison is performed between the input files (SAM format).
+The goal is to calculate a ROC curve and the AUC value to compare different read mapper / different settings on the same read mapper. Therefore FP and TP have to be identified.
+The TP are from the original reference. The FP are from the ART and are defined as unique mappings in a sense that no FP alignment occurs on the reference.
+
+@author: Sven Giese
+"""
+
+
+
+"""
+Copyright (c) 2012, Sven H. Giese, gieseS@rki.de, 
+Robert Koch-Institut, Germany,
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * The name of the author may not be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL MARTIN S. LINDNER BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
+
+import time
+import cProfile
+import sys
+from optparse import OptionParser
+import os
+
+
+from core import  AnalyseMapping as AM
+from core import   PlotData as PD
+
+
+
+def TestFiles(input):
+    """Function which checks if all required files are correctly specified (existing) """
+    controlDic = AM.readInput(input)
+    # indicator variable
+    error = 0
+    for mapper in controlDic["mapper"].keys():
+        # does the file exist?
+        try:
+            # yes
+            fobj = open(controlDic["mapper"][mapper][0][0],"r")
+            fobj.close()
+        except IOError:
+            # nope --> error
+            print "error opening file %s. Does it exist?" % controlDic["mapper"][mapper][0][0]
+            error =1
+            
+        # do the same for the artificial reference mappings
+        for p,artificial in enumerate(controlDic["mapper"][mapper][1]):
+            try:
+                
+                fobj = open(artificial,"r")
+                fobj.close()
+            except IOError:
+                print "error opening file %s. Does it exist?" % artificial
+                error =1
+    return(error)
+            
+def main():
+    """ Control function for arden-analyze """
+    usage = """usage: %prog [options] [INPUT FILE] [OUTPUTFOLDER] ...
+    Required Arguments:
+    
+    OUTPUTFOLDER:\t path to output destination folder.
+    INPUT FILE: \t ppath to ini file. To get the required format have a look at the example files.
+    
+    Script to analyze the results of the artificial reference genome mapping. This script identifies the putative TPs / FPs
+    on a specific data set (reads).
+    """
+    
+    parser = OptionParser(usage=usage,version="%prog 1.0")
+    parser.add_option("-r", "--internalrank", type='int',dest="rank",action="store",  default=1,help="Use internal ranking for reads (needed if the read names cannot be lexicographically be sorted in the same way in python and your OS by sam tools).[default: %default]")
+    parser.description=""
+    (options, args) = parser.parse_args() 
+    numArgs = len(args)
+         
+    # numArgs has to be equal to # required parameters
+    if numArgs ==2 :
+        input = args[0]
+        outpath = args[1]
+        # adjust options, otherwise default is used
+        internalrank = options.rank
+  
+        
+    else:
+        print("!!!Wrong number of parameters!!!")
+        parser.print_help()
+        sys.exit(1)
+    
+    
+    
+   
+    UseInternalRank = 1
+    controlDic = AM.readInput(input)
+   
+    print("#######################################################################################")
+    print ("Input Settings:")
+    print ("Inputfile:\t%s" % input)
+    print ("Outputpath:\t%s" % outpath)
+    print ("Reads:\t%s" % controlDic["fastqfile"])
+    print ("UseInternalRank:\t%s" % UseInternalRank)
+    print("#######################################################################################")
+    print ("\r\nStart...")
+    print controlDic
+    error = TestFiles(input)
+    if error == 1:
+        print "Program aborted. Check your inputfiles!"
+        sys.exit()
+    else:
+        print "Inputfiles checked successfully."
+    
+    # check if output dir exists; else create output 
+    if not os.path.exists(os.path.dirname(outpath)):
+        os.makedirs(os.path.dirname(outpath))
+    
+    # readdictionary with ID as key and quality as VALUE
+    start1 = time.time()
+    readdic =  AM.readReadQualities(controlDic["fastqfile"])
+    end1 = time.time()
+    print("\t took "+str(end1-start1))
+    # extend Readdic
+    readdic,reverseReadArray =  AM.extendReadDic(readdic)
+    
+    
+    # init resultdictionary which carries all information about temporary results etc.
+    resultdic = {}
+    resultdic["nreads"] = len(readdic)
+    resultdic["maxalngt"] = 0
+    resultdic["AUC"] = {}
+    resultdic["alngts"] = {}
+    resultdic["id"] =[]
+    resultdic["mapper"] =[]
+    resultdic["lines"] = {}
+    resultdic["mreads"] = {} # mapped reads
+    
+    
+
+    # init list for comparing artificial and reference
+    compareList = []
+
+
+    
+    #### looping #####
+    print ("########Progress (analysis):########")
+    print ("Mapper\t\t\ttime\t\t\tOutputfile\t\tOverallAlignments")
+    for mapper in controlDic["mapper"].keys():
+        
+        
+        resultdic["mapper"].append(mapper)
+        # initialize output files (write once to them in case an earlier version exists)
+        AM.initOutFiles(controlDic,mapper,outpath)
+        # set refname
+        refname = controlDic["mapper"][mapper][0][0].split("/")[-1]
+        
+        print ("%s" %mapper.upper()),
+        
+        if UseInternalRank == 1:
+            rankDic = AM.GetOrderDictionary(controlDic["mapper"][mapper][0][0])
+            
+        for p,artificial in enumerate(controlDic["mapper"][mapper][1]):
+            # list for calculation the difference between reference and artificial within a read region
+            compareList = AM.CreateCompareList(controlDic["fasta"]["reffasta"],controlDic["fasta"]["artfasta"][p])
+            filename = artificial.split("/")[-1]
+            outfile = mapper+"_"+artificial.split("/")[-1][:-4]+".esam"
+
+
+            start = time.time()
+            # main function, write results to 4 variables
+            tp,fp,LineCounter,MappedReads = AM.ReadSAMnoMem(controlDic["mapper"][mapper][0][0],artificial,outpath+outfile,compareList,readdic,rankDic)
+            end = time.time()
+            # dummy, configurable sensitivity calculation
+            tempmaxsens = tp
+            # maintain results in the resultstructure dictionary
+            resultdic["alngts"][outfile] = (tp,fp)
+            resultdic["lines"][outfile] = LineCounter
+            resultdic["mreads"][outfile] = MappedReads
+            resultdic["id"].append(outfile)
+            
+            print (outfile),
+            print  ("\t%0.2f (%0.2f/%0.2f)" %(tp+fp,tp,fp))
+    ##################################################################################################################################
+
+    
+    # start evaluation process. SAM files are not getting touched anymore
+    print ("\r\n########Progress (evaluation):########")    
+    print ("Mapper\t\tResultfile\t\tRef\tArt\tROC\tTime")
+    for resultfile in resultdic["id"]:
+        print resultfile.split("_")[0],
+        
+        #do sme name generation for this iteration
+        prefix   = outpath+resultfile.split(".")[0]
+        filename = resultfile.split(".")[0]
+        print ("\t\t %s " % (resultfile)),
+        
+        # read data into an array
+        dataArray = AM.ReadFromTab(outpath+resultfile,resultdic["lines"][resultfile])
+        
+        # get tp and fp arrays
+        tp =[i for i in dataArray if i.mr[0] ==1]
+        fp =[i for i in dataArray if i.mr[0] ==0]
+        
+        print ("\t %d"  % resultdic["alngts"][resultfile][0]), # TP
+        print ("\t %d\t"  % resultdic["alngts"][resultfile][1]), # FP
+        
+        start = time.time()
+        try:
+            resultdic["AUC"][resultfile] = PD.CalculateRoc2(dataArray,prefix,resultdic["nreads"],resultdic["lines"][resultfile],resultdic["mreads"][resultfile],filename)     
+        except:
+            print("error calculating AUC...")
+            
+            
+        end = time.time()
+        print ("\t%d" %(end-start))
+    
+    # prepare labels and names for plotting the data
+    ids =[i for i in resultdic['id']]
+    mappernames = [i for i in resultdic['mapper']]
+    label = [k for k in xrange(1,len(ids)+1)]
+    tuple =[resultdic['alngts'][k] for k in ids]
+    tp = [i[0] for i in tuple]
+    fp = [i[1] for i in tuple]
+    
+
+    # plot an histogram: tp,fp comparison (all mappers included)    
+    PD.plotOverviewHist(fp,tp,label,prefix,mappernames)
+    
+
+    fobj = open(outpath+"results.txt","w")
+    
+    ## maintain resultfile
+    fobj.write("mapper\tfile\ttp\tfp\tsens\tspec\tAUC\tmappedReads\tInputReads\tF\r\n")
+    for resultfile in (resultdic["id"]):
+
+        mapper = resultfile.split("_")[0]
+        file =resultfile.replace(".esam","")
+        tp =resultdic["alngts"][resultfile][0]
+        fp = resultdic["alngts"][resultfile][1]
+        
+        #sens = (tp / tp+fp) * F
+        sens = round((float(tp) / resultdic["lines"][resultfile]) * (float(resultdic["mreads"][resultfile] )/ resultdic["nreads"]),3)
+        #sens = 1-(fp / tp+fp) * F
+        spec = 1- round((float(fp) / resultdic["lines"][resultfile]) *  (float(resultdic["mreads"][resultfile]) / resultdic["nreads"]),3)
+        auc = resultdic["AUC"][resultfile]
+        pmappedReads = round(float(resultdic["mreads"][resultfile]) / resultdic["nreads"],3)
+        fobj.write("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\r\n" %(mapper,file,tp,fp,sens,spec,auc,resultdic["mreads"][resultfile],resultdic["nreads"],pmappedReads))
+    fobj.close()
+
+
+if __name__ == "__main__":
+    a = time.time()
+    main()
+    b = time.time()
+    print ("Finished!")
+    print ("Done in %f seconds!" % (b-a))
