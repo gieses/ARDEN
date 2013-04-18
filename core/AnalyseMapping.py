@@ -796,7 +796,7 @@ def readReadQualities(fastqfile):
     readdictionary = {}
     
     for read in fastq_file:
-        readdictionary[read.name] = ComputeRQScore(read.qualstr)
+        readdictionary[read.name.split()[0]] = ComputeRQScore(read.qualstr)
     print("\tReading Fastq file done!")
     return readdictionary
 
