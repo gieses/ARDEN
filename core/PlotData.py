@@ -15,6 +15,9 @@ It produces the following plots:
 
 '''
 
+import matplotlib
+matplotlib.use('Agg')
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -180,7 +183,7 @@ def CalculateRoc2(dataArray,prefix,readsize,uniquehits,mappedreads,filename):
     plt.grid(True)
     plt.legend(loc='lower right')
     plt.tight_layout()
-    plt.savefig(prefix + "_ROC.pdf",format='pdf')
+    plt.savefig(prefix + "_ROC.png",format='png')
     plt.clf  
     
     
@@ -245,7 +248,7 @@ def plotOverviewHist(fp,tp,label,prefix,mappernames):
     p.xticks(x,ticks)
     p.grid(True)
     plt.tight_layout()
-    p.savefig(prefix2 + "Overall_histabs.pdf",format='pdf')
+    p.savefig(prefix2 + "Overall_histabs.png",format='png')
     p.clf()
     
     
@@ -285,7 +288,7 @@ def plotOverviewHist(fp,tp,label,prefix,mappernames):
     p.xticks(x,ticks)
     p.grid(True)
     plt.tight_layout()
-    p.savefig(prefix2 + "Overall_histper.pdf",format='pdf')
+    p.savefig(prefix2 + "Overall_histper.png",format='png')
     p.clf()
     
     print ("X"),
