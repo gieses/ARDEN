@@ -91,6 +91,7 @@ def main():
     """
     
     parser = OptionParser(usage=usage,version="%prog 1.0")
+    parser.add_option("-p", "--phred", type='int',dest="phred",action="store",  default=33,help="Specify the PHRED encoding of the input reads i.e. Illumina 1.3+ = -p 33.[default: %default]")
     parser.add_option("-r", "--internalrank", type='int',dest="rank",action="store",  default=1,help="Use internal ranking for reads (needed if the read names cannot be lexicographically be sorted in the same way in python and your OS by sam tools).[default: %default]")
     parser.description=""
     (options, args) = parser.parse_args() 
@@ -102,6 +103,7 @@ def main():
         outpath = args[1]
         # adjust options, otherwise default is used
         internalrank = options.rank
+        phred = options.phred
   
         
     else:
@@ -121,9 +123,9 @@ def main():
     print ("Outputpath:\t%s" % outpath)
     print ("Reads:\t%s" % controlDic["fastqfile"])
     print ("UseInternalRank:\t%s" % UseInternalRank)
+    print ("Phred:\t%s" % phred)
     print("#######################################################################################")
     print ("\r\nStart...")
-    print controlDic
     error = TestFiles(input)
     if error == 1:
         print "Program aborted. Check your inputfiles!"
@@ -139,7 +141,6 @@ def main():
     start1 = time.time()
     readdic =  AM.readReadQualities(controlDic["fastqfile"])
     end1 = time.time()
-    print("\t took "+str(end1-start1))
     # extend Readdic
     readdic,reverseReadArray =  AM.extendReadDic(readdic)
     
@@ -164,7 +165,7 @@ def main():
     
     #### looping #####
     print ("########Progress (analysis):########")
-    print ("Mapper\t\t\ttime\t\t\tOutputfile\t\tOverallAlignments")
+    print ("Mapper\t\tOutputfile\t\tOverallAlignments (TP/FP)\t\t Time")
     for mapper in controlDic["mapper"].keys():
         
         
@@ -188,7 +189,7 @@ def main():
 
             start = time.time()
             # main function, write results to 4 variables
-            tp,fp,LineCounter,MappedReads = AM.ReadSAMnoMem(controlDic["mapper"][mapper][0][0],artificial,outpath+outfile,compareList,readdic,rankDic)
+            tp,fp,LineCounter,MappedReads = AM.ReadSAMnoMem(controlDic["mapper"][mapper][0][0],artificial,outpath+outfile,compareList,readdic,rankDic,phred)
             end = time.time()
             # dummy, configurable sensitivity calculation
             tempmaxsens = tp
@@ -199,20 +200,20 @@ def main():
             resultdic["id"].append(outfile)
             
             print (outfile),
-            print  ("\t%0.2f (%0.2f/%0.2f)" %(tp+fp,tp,fp))
+            print  ("\t%0.2f (%0.2f/%0.2f)" %(tp+fp,tp,fp)),
+            print ("\t%0.2f sec." %(end-start))
     ##################################################################################################################################
 
-    
+  
     # start evaluation process. SAM files are not getting touched anymore
     print ("\r\n########Progress (evaluation):########")    
-    print ("Mapper\t\tResultfile\t\tRef\tArt\tROC\tTime")
+    print ("Mapper\tTP\tFP\tTime")
     for resultfile in resultdic["id"]:
         print resultfile.split("_")[0],
         
         #do sme name generation for this iteration
         prefix   = outpath+resultfile.split(".")[0]
         filename = resultfile.split(".")[0]
-        print ("\t\t %s " % (resultfile)),
         
         # read data into an array
         dataArray = AM.ReadFromTab(outpath+resultfile,resultdic["lines"][resultfile])
@@ -222,17 +223,17 @@ def main():
         fp =[i for i in dataArray if i.mr[0] ==0]
         
         print ("\t %d"  % resultdic["alngts"][resultfile][0]), # TP
-        print ("\t %d\t"  % resultdic["alngts"][resultfile][1]), # FP
+        print ("\t %d"  % resultdic["alngts"][resultfile][1]), # FP
         
         start = time.time()
-        try:
-            resultdic["AUC"][resultfile] = PD.CalculateRoc2(dataArray,prefix,resultdic["nreads"],resultdic["lines"][resultfile],resultdic["mreads"][resultfile],filename)     
-        except:
-            print("error calculating AUC...")
+        #try:
+        resultdic["AUC"][resultfile] = PD.CalculateRoc2(dataArray,prefix,resultdic["nreads"],resultdic["lines"][resultfile],resultdic["mreads"][resultfile],filename)     
+        #except:
+            #print("error calculating AUC...")
             
             
         end = time.time()
-        print ("\t%d" %(end-start))
+        print ("\t%0.2f" %(end-start))
     
     # prepare labels and names for plotting the data
     ids =[i for i in resultdic['id']]
@@ -273,4 +274,4 @@ if __name__ == "__main__":
     main()
     b = time.time()
     print ("Finished!")
-    print ("Done in %f seconds!" % (b-a))
+    print ("Done in %0.2f seconds!" % (b-a))

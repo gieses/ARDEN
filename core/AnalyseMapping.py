@@ -17,6 +17,7 @@ alngts = 0
 AlignedReadsdic = {}
 algnedToRef = 0
 algnedToArt = 0
+phred = 0
 
 """ Helper debug functions.... """
 def savepickle(dictionaary, outputname):
@@ -405,7 +406,7 @@ def getRanks(RefRead,ArtRead,rankdic):
     return(RefReadRank,ArtReadRank)
 
 
-def ReadSAMnoMem(ref, art, output, compareList, readdic, rankdic):
+def ReadSAMnoMem(ref, art, output, compareList, readdic, rankdic,phredoffset):
     """
     Main function for comparing to mappings. This functions takes the complete alignments for artificial and reference genome and goes through them in parallel.
     Since the mappings are sorted the function alternates the parsing of the samfiles in such a way that no memory is used for comparing these functions.
@@ -425,6 +426,9 @@ def ReadSAMnoMem(ref, art, output, compareList, readdic, rankdic):
     @rtype:   ranks
     @return:  Returns the ranks for the 2 read ids.
     """
+    
+    global phred
+    phred = phredoffset
     
     fobj = open(output, "w")
     fobj.write("#ReadID\tMatchedReference\tSubstitutions\tNMtag\tReadQuality\tMappingQuality\tStart\tEnd\tGaps\tMisM\r\n")
@@ -625,7 +629,6 @@ def ReadSAMnoMem(ref, art, output, compareList, readdic, rankdic):
                 hasNextLine, RefRead, NextReadRef = getAllID(fileref, CurrentReadRef, compareList, readdic)
 
     end = time.time()
-    print ("\t\t%f\t\t" %(end - start)),
     fobj.close()
     return(tp, fp,tp+fp,MappedReads)
 ##################END: FUNCTIONS FOR NO-MEMORY ANALYSIS ####################
@@ -687,9 +690,11 @@ def ComputeRQScore(quality):
     @rtype:   float
     @return:  ReadQualityScore (RQS)
     """
+    global phred
+    
     # phred --> -33
-    qualarray = [ord(i)-33 for i in quality]
     # solexa --> -64
+    qualarray = [ord(i)-phred for i in quality]
     score =( sum(qualarray)/float(len(qualarray))) / (max(qualarray) -  min(qualarray) + 1)
 
     return (score)

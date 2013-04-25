@@ -202,6 +202,7 @@ def readHeader(samfile):
             break
     
     return(headerstr)
+
 def filter():
     """
     Function for filtering a given sam file. The alignments are evaluated individually in regard to RQS,mismatches and gaps. The input needs to be sorted.

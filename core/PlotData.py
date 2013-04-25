@@ -183,7 +183,7 @@ def CalculateRoc2(dataArray,prefix,readsize,uniquehits,mappedreads,filename):
     plt.grid(True)
     plt.legend(loc='lower right')
     plt.tight_layout()
-    plt.savefig(prefix + "_ROC.png",format='png')
+    plt.savefig(prefix + "_ROC.pdf",format='pdf')
     plt.clf  
     
     
@@ -197,7 +197,6 @@ def CalculateRoc2(dataArray,prefix,readsize,uniquehits,mappedreads,filename):
         fobj.write(tempstr+"\r\n")
 
     endtime= time.time()
-    print ("X"),
     return(round(AUC,3))
 
 def plotOverviewHist(fp,tp,label,prefix,mappernames):
@@ -248,7 +247,7 @@ def plotOverviewHist(fp,tp,label,prefix,mappernames):
     p.xticks(x,ticks)
     p.grid(True)
     plt.tight_layout()
-    p.savefig(prefix2 + "Overall_histabs.png",format='png')
+    p.savefig(prefix2 + "Overall_histabs.pdf",format='pdf')
     p.clf()
     
     
@@ -288,10 +287,9 @@ def plotOverviewHist(fp,tp,label,prefix,mappernames):
     p.xticks(x,ticks)
     p.grid(True)
     plt.tight_layout()
-    p.savefig(prefix2 + "Overall_histper.png",format='png')
+    p.savefig(prefix2 + "Overall_histper.pdf",format='pdf')
     p.clf()
     
-    print ("X"),
 
  
 
